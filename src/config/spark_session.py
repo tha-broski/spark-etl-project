@@ -7,6 +7,7 @@ from pyspark.sql import SparkSession
 def create_spark_session():
     os.environ["SPARK_LOCAL_HOSTNAME"] = "localhost"
     os.environ["HADOOP_HOME"] = r"C:\hadoop"
+    os.environ["PATH"] = r"C:\hadoop\bin;" + os.environ["PATH"]
 
     builder = (
         SparkSession.builder.appName("Spark ETL Project")
