@@ -12,4 +12,5 @@ def transform_products(bronze_df):
     silver_df = silver_df.withColumn(
         "stock_quantity", f.col("stock_quantity").cast(IntegerType())
     )
+    silver_df = silver_df.withColumn("is_active", f.lit(True))
     return silver_df

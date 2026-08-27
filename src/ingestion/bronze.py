@@ -25,5 +25,7 @@ def ingest_to_bronze(spark, source_path, schema, bronze_path):
         )
         df.write.format("delta").mode("append").save(bronze_path)
         logger.info("Bronze data saved successfully")
+        return batch_id
     except Exception:
         logger.exception("Bronze ingestion failed")
+        raise
