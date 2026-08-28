@@ -2,11 +2,16 @@ from pyspark.sql import functions as f
 
 
 def validate_products(silver_df):
+    # Find product_id duplicates in current Silver-ready snapshot
     product_counts = silver_df.groupBy("product_id").count().filter(f.col("count") > 1)
+
+    # Join duplicate info back to original to mark products as unique/not unique
     silver_df_with_duplicates = silver_df.join(product_counts, "product_id", "left")
     silver_df_with_duplicates = silver_df_with_duplicates.withColumn(
         "is_unique", f.col("count").isNull()
     ).drop("count")
+
+    # Build list of data quality errors for each row | used in main.py to split between valid and invalid records
     silver_df_with_duplicates = silver_df_with_duplicates.withColumn(
         "quality_errors",
         f.array_compact(
@@ -48,6 +53,8 @@ def validate_products(silver_df):
             ),
         ),
     )
+
+    # No quality errors -> valid row | quality error -> invalid row | main.py sends valid rows to Silver and invalid rows to Quarantine
     silver_df_with_duplicates = silver_df_with_duplicates.withColumn(
         "is_valid", f.size("quality_errors") == 0
     )
