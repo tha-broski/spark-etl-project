@@ -7,8 +7,9 @@ from transformations.products import transform_products
 from schemas.ecommerce import products_schema
 from quality.products import validate_products
 from utils.file_utils import calculate_file_hash
-from control.processed_files import is_file_processed, mark_file_processed
+from control.processed_files import mark_file_status, get_file_state
 from loading.silver import load_products_to_silver
+from loading.quarantine import load_products_to_quarantine
 
 logging.basicConfig(
     level=logging.INFO,
@@ -30,18 +31,24 @@ def main():
     logger.info("Pipeline started")
 
     file_hash = calculate_file_hash(SOURCE_PATH)
-    file_already_processed = is_file_processed(spark, file_hash, CONTROL_PATH)
-    if file_already_processed:
+    file_state = get_file_state(spark, file_hash, CONTROL_PATH)
+
+    if file_state is not None and file_state.status == "SUCCESS":
         logger.info("File is already processed and will be skipped")
         spark.stop()
         return
-
-    batch_id = ingest_to_bronze(
-        spark,
-        SOURCE_PATH,
-        products_schema,
-        BRONZE_PATH,
-    )
+    elif file_state is not None and file_state.status == "BRONZE_WRITTEN":
+        batch_id = file_state.batch_id
+    elif file_state is None:
+        batch_id = ingest_to_bronze(
+            spark,
+            SOURCE_PATH,
+            products_schema,
+            BRONZE_PATH,
+        )
+        mark_file_status(
+            spark, SOURCE_PATH, file_hash, batch_id, "BRONZE_WRITTEN", CONTROL_PATH
+        )
 
     bronze_df = spark.read.format("delta").load(BRONZE_PATH)
     current_batch_df = bronze_df.filter(f.col("batch_id") == batch_id)
@@ -65,7 +72,7 @@ def main():
     invalid_df = validated_df.filter(~f.col("is_valid"))
 
     try:
-        invalid_df.write.format("delta").mode("append").save(QUARANTINE_PATH)
+        load_products_to_quarantine(spark, invalid_df, QUARANTINE_PATH)
         load_products_to_silver(spark, valid_df, SILVER_PATH, snapshot_product_ids)
         logger.info("Silver and Quarantine data saved successfully")
     except Exception:
@@ -74,7 +81,7 @@ def main():
     finally:
         validated_df.unpersist()
 
-    mark_file_processed(spark, SOURCE_PATH, file_hash, batch_id, CONTROL_PATH)
+    mark_file_status(spark, SOURCE_PATH, file_hash, batch_id, "SUCCESS", CONTROL_PATH)
     logger.info("Pipeline completed successfully")
 
     spark.stop()
