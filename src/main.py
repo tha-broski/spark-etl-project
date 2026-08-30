@@ -19,6 +19,10 @@ from quality.orders import validate_orders
 from control.processed_files import mark_file_status, prepare_file_batch
 from loading.silver import load_snapshot_to_silver, load_incremental_to_silver
 from loading.quarantine import load_to_quarantine
+from gold.daily_sales import build_daily_sales
+from gold.product_performance import build_product_performance
+from gold.category_performance import build_category_performance
+from gold.customer_metrics import build_customer_metrics
 
 logging.basicConfig(
     level=logging.INFO,
@@ -42,6 +46,10 @@ ORDER_ITEMS_BRONZE_PATH = "data/bronze/order_items"
 ORDER_ITEMS_SILVER_PATH = "data/silver/order_items"
 ORDER_ITEMS_QUARANTINE_PATH = "data/quarantine/order_items"
 CONTROL_PATH = "data/control/processed_files"
+DAILY_SALES_GOLD_PATH = "data/gold/daily_sales"
+PRODUCT_PERFORMANCE_GOLD_PATH = "data/gold/product_performance"
+CATEGORY_PERFORMANCE_GOLD_PATH = "data/gold/category_performance"
+CUSTOMER_METRICS_GOLD_PATH = "data/gold/customer_metrics"
 
 logger = logging.getLogger(__name__)
 
@@ -366,6 +374,80 @@ def main():
             "SUCCESS",
             CONTROL_PATH,
         )
+
+    logger.info("Gold Daily Sales transformation started")
+
+    orders_silver_df = spark.read.format("delta").load(ORDERS_SILVER_PATH)
+    order_items_silver_df = spark.read.format("delta").load(ORDER_ITEMS_SILVER_PATH)
+
+    daily_sales_df = build_daily_sales(
+        orders_silver_df,
+        order_items_silver_df,
+    )
+    try:
+        daily_sales_df.write.format("delta").mode("overwrite").save(
+            DAILY_SALES_GOLD_PATH
+        )
+        logger.info("Gold Daily Sales saved successfully")
+    except Exception:
+        logger.exception("Gold daily sales load failed")
+        raise
+
+    logger.info("Gold Product Performance transformation started")
+
+    products_silver_df = spark.read.format("delta").load(PRODUCTS_SILVER_PATH)
+
+    product_performance_df = build_product_performance(
+        orders_silver_df,
+        order_items_silver_df,
+        products_silver_df,
+    )
+    try:
+        product_performance_df.write.format("delta").mode("overwrite").save(
+            PRODUCT_PERFORMANCE_GOLD_PATH
+        )
+        logger.info("Gold Product performance saved successfully")
+    except Exception:
+        logger.exception("Gold Product performance load failed")
+        raise
+
+    logger.info("Gold Category Performance transformation started")
+
+    category_performance_df = build_category_performance(
+        orders_silver_df,
+        order_items_silver_df,
+        products_silver_df,
+    )
+
+    try:
+        category_performance_df.write.format("delta").mode("overwrite").save(
+            CATEGORY_PERFORMANCE_GOLD_PATH
+        )
+        logger.info("Gold Category Performance saved successfully")
+
+    except Exception:
+        logger.exception("Gold Category Performance load failed")
+        raise
+
+    logger.info("Gold Customer Metrics transformation started")
+
+    customers_silver_df = spark.read.format("delta").load(CUSTOMERS_SILVER_PATH)
+
+    customer_metrics_df = build_customer_metrics(
+        orders_silver_df,
+        order_items_silver_df,
+        customers_silver_df,
+    )
+
+    try:
+        customer_metrics_df.write.format("delta").mode("overwrite").save(
+            CUSTOMER_METRICS_GOLD_PATH
+        )
+        logger.info("Gold Customer Metrics saved successfully")
+
+    except Exception:
+        logger.exception("Gold Customer Metrics load failed")
+        raise
 
     logger.info("Pipeline completed successfully")
 
