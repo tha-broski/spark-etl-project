@@ -5,7 +5,7 @@ logger = logging.getLogger(__name__)
 
 
 # used in main.py
-def load_products_to_quarantine(spark, invalid_df, quarantine_path):
+def load_to_quarantine(spark, invalid_df, quarantine_path, entity_id_column):
     logger.info("Started loading quarantine")
 
     # First load -> Quarantine non existent -> append all invalid rows
@@ -18,10 +18,10 @@ def load_products_to_quarantine(spark, invalid_df, quarantine_path):
     logger.info("Quarantine exists | Deduplicating current batch")
     existing_quarantine_df = spark.read.format("delta").load(quarantine_path)
 
-    # Compare old quarantine rows with new batch, remove duplicates, keep new invalid rows by batch_id + product_id
+    # Keep only new invalid rows by batch_id + entity ID
     new_invalid_df = invalid_df.join(
         existing_quarantine_df,
-        on=["batch_id", "product_id"],
+        on=["batch_id", entity_id_column],
         how="left_anti",
     )
 
